@@ -1,0 +1,50 @@
+# Python缓存
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.cache/
+
+# VS Code / PyCharm
+.vscode/
+.idea/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# 模型权重
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.h5
+*.pdparams
+
+# 训练与评估输出
+checkpoints/
+outputs/
+output/
+runs/
+results/
+wandb/
+tensorboard/
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+
+# 日志：忽略子目录日志，但保留项目最外层日志
+*.log
+!/*.log
+
+# 本地配置与密钥
+.env
+*.key
+credentials.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
