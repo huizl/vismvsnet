@@ -6,7 +6,8 @@ set -euo pipefail
 DATAPATH="${DATAPATH:-/home/disk_10T/lzh_data/dtu_training/mvs_training/dtu}"
 TRAINLIST="${TRAINLIST:-lists/dtu/train.txt}"
 TESTLIST="${TESTLIST:-lists/dtu/test.txt}"
-LOGDIR="${LOGDIR:-./checkpoints/dtu/vis_research_view3}"
+EXP_NAME="${EXP_NAME:-vis_full_view3}"
+LOGDIR="${LOGDIR:-./checkpoints/dtu/${EXP_NAME}}"
 GPU="${GPU:-0}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
 
@@ -34,4 +35,5 @@ CUDA_VISIBLE_DEVICES="${GPU}" python train.py \
   --secondary_candidate_ratio=0.25 \
   --summary_freq=20 \
   --save_freq=1 \
-  --seed=1
+  --seed=1 \
+  "$@"

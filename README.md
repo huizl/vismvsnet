@@ -34,7 +34,8 @@
 在服务器进入项目目录后执行：
 
 ```bash
-DATAPATH=/path/to/dtu GPU=0 BATCH_SIZE=4 bash train.sh
+DATAPATH=/path/to/dtu GPU=0 BATCH_SIZE=4 \
+EXP_NAME=vis_full_view3 bash train.sh
 ```
 
 也可以直接执行：
@@ -58,7 +59,8 @@ checkpoints/dtu/vis_research_view3
 ```
 
 `train.sh` 中的服务器数据路径可以通过 `DATAPATH` 环境变量覆盖，不需要修改
-脚本。
+脚本。`EXP_NAME` 同时决定实验名称和检查点子目录；脚本末尾的其他参数会原样
+传递给 `train.py`，可用于关闭相应模块。
 
 ## 消融实验
 
@@ -74,6 +76,15 @@ checkpoints/dtu/vis_research_view3
 | M1＋M3 | `--disable_hypothesis_visibility` |
 | M2＋M3 | `--disable_adaptive_search` |
 | M1＋M2＋M3 | 不追加关闭参数 |
+
+例如，训练纯基线可以直接执行：
+
+```bash
+EXP_NAME=vis_baseline_view3 bash train.sh \
+  --disable_adaptive_search \
+  --disable_hypothesis_visibility \
+  --disable_boundary_refine
+```
 
 其中：
 
@@ -118,4 +129,3 @@ python verify.py
 - `datasets/`：DTU 训练与评估数据加载。
 - `lists/`：DTU 数据划分。
 - `verify.py`：无需数据集的快速验证脚本。
-
