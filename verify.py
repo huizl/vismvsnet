@@ -8,13 +8,13 @@ import torch
 import sys
 sys.path.insert(0, '.')
 
-from models.vismvsnet import VisMVSModel, VisMVSLoss
+from models import VisMVSModel, VisMVSLoss
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.manual_seed(42)
 
 # Use smaller spatial size for CPU test
-B, V, C, H, W = 1, 2, 3, 128, 160
+B, V, C, H, W = 1, 3, 3, 64, 80
 D_orig = 48
 
 imgs = torch.randn(B, V, C, H, W, device=device)
@@ -26,14 +26,16 @@ mask = torch.ones(B, 1, H, W, device=device)
 print("=== Testing VisMVSModel ===")
 model = VisMVSModel(
     mode='soft',
-    stage1_depth_num=12, stage2_depth_num=8, stage3_depth_num=4,
+    stage1_depth_num=8, stage2_depth_num=8, stage3_depth_num=8,
 ).to(device)
+model.eval()
 n_params = sum(p.numel() for p in model.parameters())
 print(f"Parameters: {n_params:,}")
 
 print("Forward pass...")
 with torch.no_grad():
-    outputs, final_depth, prob_maps = model(imgs, proj_matrices, depth_values_orig)
+    outputs, final_depth, prob_maps, auxiliary = model(
+        imgs, proj_matrices, depth_values_orig)
 
 print(f"Stage outputs: {len(outputs)} stages")
 for i, (depth, pairs) in enumerate(outputs):
@@ -43,11 +45,13 @@ for i, (depth, pairs) in enumerate(outputs):
 
 print(f"Final depth: {final_depth.shape}")
 print(f"Conf maps: {[p.shape for p in prob_maps]}")
+print(f"Support: {auxiliary['support'].shape}")
 
 print("\n=== Testing VisMVSLoss ===")
 depth_interval = depth_values_orig[:, 1] - depth_values_orig[:, 0]
 loss_fn = VisMVSLoss(occ_guide=False)
-loss, stats = loss_fn(outputs, depth_gt, mask, depth_interval)
+loss, stats = loss_fn(
+    outputs, final_depth, auxiliary, depth_gt, mask, depth_interval)
 
 print(f"Loss: {loss.item():.6f}")
 for k, v in stats.items():
@@ -55,20 +59,26 @@ for k, v in stats.items():
 
 print("\n=== Testing backward pass ===")
 # Re-run forward with gradients enabled for backward test
-outputs2, _, _ = model(imgs, proj_matrices, depth_values_orig)
-loss2, _ = loss_fn(outputs2, depth_gt, mask, depth_interval)
+outputs2, final_depth2, _, auxiliary2 = model(imgs, proj_matrices, depth_values_orig)
+loss2, _ = loss_fn(
+    outputs2, final_depth2, auxiliary2, depth_gt, mask, depth_interval)
 loss2.backward()
 print("Backward pass OK")
 
-# Test with different fusion modes
-for mode in ['soft', 'average', 'maxpool', 'uwta']:
-    print(f"\n=== Testing mode='{mode}' ===")
+# Test baseline and single-module ablation paths.
+for label, switches in [
+        ('baseline', (False, False, False)),
+        ('M1-search', (True, False, False)),
+        ('M2-visibility', (False, True, False)),
+        ('M3-boundary', (False, False, True))]:
+    print(f"\n=== Testing {label} ===")
     m = VisMVSModel(
-        mode=mode,
-        stage1_depth_num=12, stage2_depth_num=8, stage3_depth_num=4,
-    ).to(device)
+        mode='soft', stage1_depth_num=8, stage2_depth_num=8, stage3_depth_num=8,
+        use_adaptive_search=switches[0],
+        use_hypothesis_visibility=switches[1],
+        use_boundary_refine=switches[2]).to(device).eval()
     with torch.no_grad():
-        outputs, final_depth, prob_maps = m(imgs, proj_matrices, depth_values_orig)
+        outputs, final_depth, prob_maps, _ = m(imgs, proj_matrices, depth_values_orig)
     print(f"  OK - final_depth: {final_depth.shape}")
 
 print("\n=== All tests passed! ===")

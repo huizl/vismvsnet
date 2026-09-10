@@ -8,7 +8,22 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
 import time
-from tensorboardX import SummaryWriter
+try:
+    from tensorboardX import SummaryWriter
+except ImportError:
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+    except ImportError:
+        class SummaryWriter:
+            """Keep training usable when TensorBoard is not installed."""
+            def __init__(self, *args, **kwargs):
+                print("TensorBoard is unavailable; scalar event logging is disabled.")
+
+            def add_scalar(self, *args, **kwargs):
+                pass
+
+            def close(self):
+                pass
 from datasets import find_dataset_def
 from models import VisMVSModel, VisMVSLoss
 from utils import *
@@ -71,14 +86,40 @@ parser.add_argument('--vismode', type=str, default='soft',
                     choices=['soft', 'hard', 'average', 'uwta', 'maxpool'],
                     help='multi-view fusion mode')
 parser.add_argument('--nviews', type=int, default=3, help='number of views')
+parser.add_argument('--test_nviews', type=int, default=None,
+                    help='validation views; defaults to --nviews (3 for trinocular training)')
 parser.add_argument('--stage1_dnum', type=int, default=48, help='stage 1 depth num')
 parser.add_argument('--stage2_dnum', type=int, default=32, help='stage 2 depth num')
 parser.add_argument('--stage3_dnum', type=int, default=16, help='stage 3 depth num')
 parser.add_argument('--stage1_iscale', type=int, default=4, help='stage 1 interval scale')
 parser.add_argument('--stage2_iscale', type=int, default=2, help='stage 2 interval scale')
 parser.add_argument('--stage3_iscale', type=int, default=1, help='stage 3 interval scale')
+parser.add_argument('--disable_adaptive_search', action='store_true',
+                    help='ablate M1 and use the baseline single-centre local search')
+parser.add_argument('--disable_hypothesis_visibility', action='store_true',
+                    help='ablate M2 and use baseline 2D uncertainty fusion')
+parser.add_argument('--disable_boundary_refine', action='store_true',
+                    help='ablate M3 and return the unrefined stage-3 depth')
+parser.add_argument('--global_candidate_ratio', type=float, default=0.25)
+parser.add_argument('--secondary_candidate_ratio', type=float, default=0.25)
+parser.add_argument('--refined_loss_weight', type=float, default=1.0)
+parser.add_argument('--boundary_loss_weight', type=float, default=0.1)
 
 args = parser.parse_args()
+
+if args.nviews != 3 or (args.test_nviews is not None and args.test_nviews != 3):
+    parser.error("the current experiment phase is fixed to three total views")
+if not (0.0 <= args.global_candidate_ratio < 1.0):
+    parser.error("--global_candidate_ratio must be in [0, 1)")
+if not (0.0 <= args.secondary_candidate_ratio < 1.0):
+    parser.error("--secondary_candidate_ratio must be in [0, 1)")
+if args.global_candidate_ratio + args.secondary_candidate_ratio >= 1.0:
+    parser.error("global and secondary candidate ratios must sum to less than 1")
+for name, count in (("stage1_dnum", args.stage1_dnum),
+                    ("stage2_dnum", args.stage2_dnum),
+                    ("stage3_dnum", args.stage3_dnum)):
+    if count < 8 or count % 8:
+        parser.error("--{} must be a positive multiple of 8".format(name))
 
 os.makedirs(args.logdir, exist_ok=True)
 sys.stdout = Logger(os.path.join(args.logdir, "logs.txt"))
@@ -111,7 +152,8 @@ MVSDataset = find_dataset_def(args.dataset)
 train_dataset = MVSDataset(args.trainpath, args.trainlist, "train",
                            args.nviews, args.numdepth, args.interval_scale)
 test_dataset = MVSDataset(args.testpath, args.testlist, "test",
-                          5, args.numdepth, args.interval_scale)
+                          args.test_nviews or args.nviews,
+                          args.numdepth, args.interval_scale)
 TrainImgLoader = DataLoader(train_dataset, args.batch_size, shuffle=True,
                             num_workers=8, drop_last=True)
 TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False,
@@ -125,12 +167,19 @@ model = VisMVSModel(
     stage2_interval_scale=args.stage2_iscale,
     stage3_depth_num=args.stage3_dnum,
     stage3_interval_scale=args.stage3_iscale,
+    use_adaptive_search=not args.disable_adaptive_search,
+    use_hypothesis_visibility=not args.disable_hypothesis_visibility,
+    use_boundary_refine=not args.disable_boundary_refine,
+    global_candidate_ratio=args.global_candidate_ratio,
+    secondary_candidate_ratio=args.secondary_candidate_ratio,
 )
 
 if args.mode in ["train", "test"]:
     model = nn.DataParallel(model)
 model.cuda()
-model_loss = VisMVSLoss(occ_guide=False)
+model_loss = VisMVSLoss(
+    refined_weight=args.refined_loss_weight,
+    boundary_weight=args.boundary_loss_weight)
 optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999), weight_decay=args.wd)
 
 # =============================================================================
@@ -285,16 +334,17 @@ def train_sample(sample, detailed_summary=False):
     # extract base depth interval for loss normalisation
     depth_interval = depth_values[:, 1] - depth_values[:, 0]  # [B]
 
-    outputs, final_depth, prob_maps = model(
+    outputs, final_depth, prob_maps, auxiliary = model(
         sample_cuda["imgs"], sample_cuda["proj_matrices"], depth_values)
 
-    loss, scalar_outputs = model_loss(outputs, depth_gt, mask, depth_interval)
+    loss, scalar_outputs = model_loss(
+        outputs, final_depth, auxiliary, depth_gt, mask, depth_interval)
     loss.backward()
     optimizer.step()
 
     if detailed_summary:
         # use stage 3 (final) depth for metrics
-        depth_est = outputs[-1][0]  # stage 3 depth [B, H_stage, W_stage]
+        depth_est = final_depth.squeeze(1)  # refined stage-3 depth [B, H_stage, W_stage]
         # upsample to gt resolution
         depth_est_full = F.interpolate(
             depth_est.unsqueeze(1),
@@ -328,13 +378,14 @@ def test_sample(sample, detailed_summary=True):
 
     depth_interval = depth_values[:, 1] - depth_values[:, 0]
 
-    outputs, final_depth, prob_maps = model(
+    outputs, final_depth, prob_maps, auxiliary = model(
         sample_cuda["imgs"], sample_cuda["proj_matrices"], depth_values)
 
-    loss, scalar_outputs = model_loss(outputs, depth_gt, mask, depth_interval)
+    loss, scalar_outputs = model_loss(
+        outputs, final_depth, auxiliary, depth_gt, mask, depth_interval)
 
     if detailed_summary:
-        depth_est = outputs[-1][0]
+        depth_est = final_depth.squeeze(1)
         depth_est_full = F.interpolate(
             depth_est.unsqueeze(1),
             size=(depth_gt.shape[2], depth_gt.shape[3]),

@@ -39,7 +39,8 @@ parser.add_argument('--testpath', help='testing data path')
 parser.add_argument('--testlist', help='testing scan list')
 
 parser.add_argument('--batch_size', type=int, default=1, help='testing batch size')
-parser.add_argument('--nviews', type=int, default=5, help='number of views')
+parser.add_argument('--nviews', type=int, default=3,
+                    help='total views (default: trinocular, one reference plus two sources)')
 parser.add_argument('--numdepth', type=int, default=192, help='the number of depth values')
 parser.add_argument('--interval_scale', type=float, default=1.06, help='the depth interval scale')
 
@@ -58,8 +59,17 @@ parser.add_argument('--stage2_dnum', type=int, default=32)
 parser.add_argument('--stage2_iscale', type=int, default=2)
 parser.add_argument('--stage3_dnum', type=int, default=16)
 parser.add_argument('--stage3_iscale', type=int, default=1)
+parser.add_argument('--disable_adaptive_search', action='store_true')
+parser.add_argument('--disable_hypothesis_visibility', action='store_true')
+parser.add_argument('--disable_boundary_refine', action='store_true')
+parser.add_argument('--global_candidate_ratio', type=float, default=0.25)
+parser.add_argument('--secondary_candidate_ratio', type=float, default=0.25)
 
 args = parser.parse_args()
+if args.nviews != 3:
+    parser.error("the current experiment phase is fixed to three total views")
+if args.global_candidate_ratio + args.secondary_candidate_ratio >= 1.0:
+    parser.error("global and secondary candidate ratios must sum to less than 1")
 print("argv:", sys.argv[1:])
 print_args(args)
 
@@ -134,6 +144,11 @@ def save_depth():
         stage2_interval_scale=args.stage2_iscale,
         stage3_depth_num=args.stage3_dnum,
         stage3_interval_scale=args.stage3_iscale,
+        use_adaptive_search=not args.disable_adaptive_search,
+        use_hypothesis_visibility=not args.disable_hypothesis_visibility,
+        use_boundary_refine=not args.disable_boundary_refine,
+        global_candidate_ratio=args.global_candidate_ratio,
+        secondary_candidate_ratio=args.secondary_candidate_ratio,
     )
     model = nn.DataParallel(model)
     model.cuda()
@@ -151,7 +166,7 @@ def save_depth():
     with torch.no_grad():
         for batch_idx, sample in enumerate(TestImgLoader):
             sample_cuda = tocuda(sample)
-            outputs, final_depth, conf_maps = model(
+            outputs, final_depth, conf_maps, auxiliary = model(
                 sample_cuda["imgs"], sample_cuda["proj_matrices"],
                 sample_cuda["depth_values"])
 
@@ -190,7 +205,7 @@ def save_depth():
             depth_s3 = depth_s3.cpu().numpy()
             conf_s3 = conf_s3.cpu().numpy()
 
-            del sample_cuda, outputs, final_depth, conf_maps
+            del sample_cuda, outputs, final_depth, conf_maps, auxiliary
 
             # ---- save per-sample ----
             for b in range(B):

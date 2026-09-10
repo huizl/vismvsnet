@@ -1,1 +1,1 @@
-from models.vismvsnet import VisMVSModel, VisMVSLoss
+from models.vismvsnet_research import VisMVSModel, VisMVSLoss
