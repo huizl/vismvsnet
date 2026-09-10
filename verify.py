@@ -47,6 +47,16 @@ print(f"Final depth: {final_depth.shape}")
 print(f"Conf maps: {[p.shape for p in prob_maps]}")
 print(f"Support: {auxiliary['support'].shape}")
 
+# Regression test for the training crash observed with batch_size=4 and D=16.
+dummy_aux = {
+    'depth_values': torch.randn(4, 16, 2, 3, device=device),
+    'support_volume': torch.rand(4, 16, 2, 3, device=device),
+}
+dummy_depth = torch.randn(4, 2, 3, device=device)
+dummy_support = model._predicted_support(dummy_aux, dummy_depth)
+assert dummy_support.shape == (4, 1, 2, 3)
+print("Batch-4 support lookup: OK")
+
 print("\n=== Testing VisMVSLoss ===")
 depth_interval = depth_values_orig[:, 1] - depth_values_orig[:, 0]
 loss_fn = VisMVSLoss(occ_guide=False)

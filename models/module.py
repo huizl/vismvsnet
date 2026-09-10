@@ -69,8 +69,10 @@ def homo_warping(src_fea, src_proj, ref_proj, depth_values):
         rot = proj[:, :3, :3]  # [B,3,3]
         trans = proj[:, :3, 3:4]  # [B,3,1]
 
-        y, x = torch.meshgrid([torch.arange(0, height, dtype=torch.float32, device=src_fea.device),
-                               torch.arange(0, width, dtype=torch.float32, device=src_fea.device)])
+        y, x = torch.meshgrid(
+            torch.arange(0, height, dtype=torch.float32, device=src_fea.device),
+            torch.arange(0, width, dtype=torch.float32, device=src_fea.device),
+            indexing='ij')
         y, x = y.contiguous(), x.contiguous()
         y, x = y.view(height * width), x.view(height * width)
         xyz = torch.stack((x, y, torch.ones_like(x)))  # [3, H*W]
@@ -90,8 +92,9 @@ def homo_warping(src_fea, src_proj, ref_proj, depth_values):
         proj_xy = torch.stack((proj_x_normalized, proj_y_normalized), dim=3)  # [B, Ndepth, H*W, 2]
         grid = proj_xy
 
-    warped_src_fea = F.grid_sample(src_fea, grid.view(batch, num_depth * height, width, 2),
-                                   mode='bilinear', padding_mode='zeros')
+    warped_src_fea = F.grid_sample(
+        src_fea, grid.view(batch, num_depth * height, width, 2),
+        mode='bilinear', padding_mode='zeros', align_corners=False)
     warped_src_fea = warped_src_fea.view(batch, channels, num_depth, height, width)
 
     return warped_src_fea

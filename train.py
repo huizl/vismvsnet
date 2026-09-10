@@ -261,7 +261,6 @@ def train():
 
     for epoch_idx in range(start_epoch, args.epochs):
         print('Epoch {}:'.format(epoch_idx))
-        lr_scheduler.step()
         global_step = len(TrainImgLoader) * epoch_idx
 
         # ---- training ----
@@ -275,6 +274,9 @@ def train():
             del scalar_outputs
             print('Epoch {}/{}, Iter {}/{}, train loss = {:.3f}, time = {:.3f}'.format(
                 epoch_idx, args.epochs, batch_idx, len(TrainImgLoader), loss, time.time() - start_time))
+
+        # Step after optimizer updates so the initial learning rate is not skipped.
+        lr_scheduler.step()
 
         # ---- save checkpoint ----
         if (epoch_idx + 1) % args.save_freq == 0:

@@ -30,7 +30,7 @@ def candidate_projection_validity(ref_proj, src_proj, depth_values, height, widt
     device, dtype = depth_values.device, depth_values.dtype
     ys, xs = torch.meshgrid(
         torch.arange(height, device=device, dtype=dtype),
-        torch.arange(width, device=device, dtype=dtype))
+        torch.arange(width, device=device, dtype=dtype), indexing='ij')
     pixels = torch.stack((xs, ys, torch.ones_like(xs)), dim=0).reshape(1, 3, -1)
     pixels = pixels.expand(batch, -1, -1)
     relative = src_proj @ torch.inverse(ref_proj)
@@ -270,7 +270,7 @@ class VisMVSResearchModel(nn.Module):
         values = auxiliary['depth_values']
         if values.dim() == 2:
             values = values[:, :, None, None].expand_as(auxiliary['support_volume'])
-        index = (values - depth).abs().argmin(dim=1, keepdim=True)
+        index = (values - depth.unsqueeze(1)).abs().argmin(dim=1, keepdim=True)
         return torch.gather(auxiliary['support_volume'], 1, index)
 
     def forward(self, imgs, proj_matrices, depth_values_orig):
