@@ -14,6 +14,7 @@ Usage:
                    --loadckpt <ckpt> --outdir <dir> --display
 """
 import argparse
+import json
 import os
 import torch
 import torch.nn as nn
@@ -127,6 +128,41 @@ def _save_error_pfm_and_png(outdir, fname, error):
     error_clip = np.clip(error, 0., 20.) / 20.
     error_col = cv2.applyColorMap((error_clip * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
     cv2.imwrite(png_path, error_col)
+
+
+def _save_metric_results(valid_pixels, abs_err, lt2, lt4, lt8):
+    """Save the aggregate metrics without writing prediction or image files."""
+    os.makedirs(args.outdir, exist_ok=True)
+    result = {
+        "experiment": os.path.basename(os.path.normpath(args.outdir)),
+        "evaluated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "dataset": args.dataset,
+        "testpath": args.testpath,
+        "testlist": args.testlist,
+        "checkpoint": args.loadckpt,
+        "nviews": args.nviews,
+        "adaptive_search": not args.disable_adaptive_search,
+        "hypothesis_visibility": not args.disable_hypothesis_visibility,
+        "boundary_refine": not args.disable_boundary_refine,
+        "valid_pixels": int(valid_pixels),
+        "abs_depth_error_mm": float(abs_err),
+        "accuracy_lt_2mm_percent": float(lt2),
+        "accuracy_lt_4mm_percent": float(lt4),
+        "accuracy_lt_8mm_percent": float(lt8),
+    }
+
+    json_path = os.path.join(args.outdir, "metrics.json")
+    txt_path = os.path.join(args.outdir, "metrics.txt")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    with open(txt_path, "w", encoding="utf-8") as f:
+        for key, value in result.items():
+            f.write("{}: {}\n".format(key, value))
+
+    print("Metrics saved to:")
+    print("  {}".format(txt_path))
+    print("  {}".format(json_path))
 
 
 
@@ -281,6 +317,8 @@ def save_depth():
         print("  <4mm  (accuracy): {:.2f}%".format(lt4))
         print("  <8mm  (accuracy): {:.2f}%".format(lt8))
         print("=" * 60 + "\n")
+        if args.metrics_only:
+            _save_metric_results(total, abs_err, lt2, lt4, lt8)
     else:
         print("No valid GT pixels were found; check DATASET, DATAPATH, TESTLIST, and GTPATH.")
 
@@ -518,7 +556,7 @@ def filter_depth(scan_folder, out_folder, plyfilename):
 if __name__ == '__main__':
     if args.metrics_only:
         print("=" * 60)
-        print("Running metrics-only evaluation (no files will be saved) ...")
+        print("Running metrics-only evaluation (only metric summaries will be saved) ...")
         print("=" * 60)
         save_depth()
         print("Done (--metrics_only).")
