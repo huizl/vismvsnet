@@ -126,6 +126,10 @@ python verify.py
 - `train.py`、`train.sh`：三视图训练入口。
 - `eval.py`、`eval.sh`：三视图深度评估入口。
 - `fusion.py`：深度过滤和点云融合。
+
+只查看深度指标且不保存 PFM、PNG、mask 或点云时，在评估命令末尾添加
+`--metrics_only`。该模式输出最终阶段的绝对深度误差以及 2 mm、4 mm、8 mm
+阈值准确率。
 - `datasets/`：DTU 训练与评估数据加载。
 - `lists/`：DTU 数据划分。
 - `verify.py`：无需数据集的快速验证脚本。

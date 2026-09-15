@@ -48,6 +48,8 @@ parser.add_argument('--loadckpt', default=None, help='load a specific checkpoint
 parser.add_argument('--outdir', default='./outputs', help='output dir')
 parser.add_argument('--gtpath', default=None, help='path to GT depth maps (e.g. .../Depths)')
 parser.add_argument('--no_fusion', action='store_true', help='skip point cloud fusion (depth-only eval)')
+parser.add_argument('--metrics_only', action='store_true',
+                    help='only print depth metrics; do not save PFM, PNG, masks, or point clouds')
 parser.add_argument('--display', action='store_true', help='display depth images and masks')
 
 # Vis-MVSNet specific
@@ -177,7 +179,21 @@ def save_depth():
 
             B = final_depth.shape[0]
 
-            # ---- upsample stage depths to original resolution ----
+            # Native stage-3 output is used for metrics so evaluation matches
+            # the training-time resize direction (GT -> prediction size).
+            depth_s3_native = final_depth.squeeze(1).cpu().numpy()  # [B, H_native, W_native]
+
+            if args.metrics_only:
+                del sample_cuda, outputs, final_depth, conf_maps, auxiliary
+                for b in range(B):
+                    ret = _compute_depth_metrics(
+                        filenames[b].format('', ''), depth_s3_native[b])
+                    if ret is not None:
+                        for key in metrics:
+                            metrics[key] += ret[key]
+                continue
+
+            # ---- upsample stage depths to original resolution for saving ----
             depth_s1 = F.interpolate(
                 outputs[0][0].unsqueeze(1),
                 size=(H_orig, W_orig),
@@ -186,9 +202,6 @@ def save_depth():
                 outputs[1][0].unsqueeze(1),
                 size=(H_orig, W_orig),
                 mode='bilinear', align_corners=False).squeeze(1)
-            # save native stage3 output BEFORE bilinear upsampling (for accurate metrics)
-            depth_s3_native = final_depth.squeeze(1).cpu().numpy()  # [B, H_native, W_native]
-
             depth_s3 = F.interpolate(
                 final_depth,
                 size=(H_orig, W_orig),
@@ -253,16 +266,8 @@ def save_depth():
         print("=" * 60 + "\n")
 
 
-def _save_error_maps(fname_blank, d1, d2, d3, d3_native=None):
-    """Try to load GT depth and save error maps for each stage.
-
-    Args:
-        d1, d2, d3: depths upsampled to 1184×1600 (for visualization)
-        d3_native:  native stage3 output before upsampling (for accurate metrics)
-
-    Returns:
-        dict with keys abs_sum, pixels, lt2, lt4, lt8  (or None if no GT).
-    """
+def _load_gt_depth(fname_blank):
+    """Load the GT depth corresponding to a dataset output filename."""
     parts = fname_blank.split('/')
     scan = parts[0]
     try:
@@ -277,25 +282,55 @@ def _save_error_maps(fname_blank, d1, d2, d3, d3_native=None):
         return None
 
     depth_gt, _ = read_pfm(gt_path)
+    return scan, view_id, depth_gt
+
+
+def _compute_depth_metrics(fname_blank, prediction):
+    """Compute metrics at the prediction's native resolution without saving files."""
+    gt_data = _load_gt_depth(fname_blank)
+    if gt_data is None:
+        return None
+
+    _, _, depth_gt = gt_data
+    depth_min, depth_max = 425., 935.
+    gt_mask = (depth_gt > depth_min) & (depth_gt < depth_max)
+
+    if depth_gt.shape != prediction.shape:
+        depth_gt = cv2.resize(depth_gt, (prediction.shape[1], prediction.shape[0]),
+                              interpolation=cv2.INTER_LINEAR)
+        gt_mask = cv2.resize(gt_mask.astype(np.uint8),
+                             (prediction.shape[1], prediction.shape[0]),
+                             interpolation=cv2.INTER_NEAREST).astype(bool)
+
+    valid_err = np.abs(prediction - depth_gt)[gt_mask]
+    return {
+        "abs_sum": float(valid_err.sum()),
+        "pixels": valid_err.size,
+        "lt2": int((valid_err < 2).sum()),
+        "lt4": int((valid_err < 4).sum()),
+        "lt8": int((valid_err < 8).sum()),
+    }
+
+
+def _save_error_maps(fname_blank, d1, d2, d3, d3_native=None):
+    """Try to load GT depth and save error maps for each stage.
+
+    Args:
+        d1, d2, d3: depths upsampled to 1184×1600 (for visualization)
+        d3_native:  native stage3 output before upsampling (for accurate metrics)
+
+    Returns:
+        dict with keys abs_sum, pixels, lt2, lt4, lt8  (or None if no GT).
+    """
+    gt_data = _load_gt_depth(fname_blank)
+    if gt_data is None:
+        return None
+    scan, view_id, depth_gt = gt_data
     depth_min, depth_max = 425., 935.
 
-    # ---- metrics at native pred size (same direction as training: GT → pred res) ----
-    gt_mask = (depth_gt > depth_min) & (depth_gt < depth_max)
+    # ---- metrics at native pred size ----
     pred_for_metric = d3_native if d3_native is not None else d3
-
-    if depth_gt.shape != pred_for_metric.shape:
-        depth_gt_resized = cv2.resize(depth_gt,
-                                      (pred_for_metric.shape[1], pred_for_metric.shape[0]),
-                                      interpolation=cv2.INTER_LINEAR)
-        gt_mask_resized = cv2.resize(gt_mask.astype(np.uint8),
-                                     (pred_for_metric.shape[1], pred_for_metric.shape[0]),
-                                     interpolation=cv2.INTER_NEAREST).astype(bool)
-    else:
-        depth_gt_resized = depth_gt
-        gt_mask_resized = gt_mask
-
-    valid_err = np.abs(pred_for_metric - depth_gt_resized)[gt_mask_resized]
-    n = valid_err.size
+    metric_values = _compute_depth_metrics(fname_blank, pred_for_metric)
 
     # ---- error maps for visualization (upsample GT to pred size) ----
     gt_up = cv2.resize(depth_gt, (d1.shape[1], d1.shape[0]),
@@ -314,13 +349,7 @@ def _save_error_maps(fname_blank, d1, d2, d3, d3_native=None):
     fname_err3 = scan + '/error_stage3/' + '{:0>8}'.format(view_id) + '{}'
     _save_error_pfm_and_png(args.outdir, fname_err3, err3)
 
-    return {
-        "abs_sum": float(valid_err.sum()),
-        "pixels": n,
-        "lt2": int((valid_err < 2).sum()),
-        "lt4": int((valid_err < 4).sum()),
-        "lt8": int((valid_err < 8).sum()),
-    }
+    return metric_values
 
 
 # =============================================================================
@@ -464,6 +493,14 @@ def filter_depth(scan_folder, out_folder, plyfilename):
 # Main
 # =============================================================================
 if __name__ == '__main__':
+    if args.metrics_only:
+        print("=" * 60)
+        print("Running metrics-only evaluation (no files will be saved) ...")
+        print("=" * 60)
+        save_depth()
+        print("Done (--metrics_only).")
+        sys.exit(0)
+
     # Step 1: save all depth maps and confidence maps
     print("=" * 60)
     print("Step 1: saving depth maps and confidence maps ...")
