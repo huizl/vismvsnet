@@ -15,6 +15,10 @@ EXP_NAME="${EXP_NAME:-vis_full_view3}"
 OUTDIR="${OUTDIR:-./outputs/${EXP_NAME}}"
 CKPT="${CKPT:-./checkpoints/dtu/${EXP_NAME}/best_2mm.ckpt}"
 GPU="${GPU:-0}"
+EVAL_MODE_ARGS=(--metrics_only)
+if [[ "${SAVE_OUTPUTS:-0}" == "1" ]]; then
+  EVAL_MODE_ARGS=()
+fi
 
 CUDA_VISIBLE_DEVICES="${GPU}" python eval.py \
   --dataset="${DATASET}" \
@@ -32,4 +36,5 @@ CUDA_VISIBLE_DEVICES="${GPU}" python eval.py \
   --stage2_dnum=32 --stage2_iscale=2 \
   --stage3_dnum=16 --stage3_iscale=1 \
   --no_fusion \
+  "${EVAL_MODE_ARGS[@]}" \
   "$@"

@@ -132,7 +132,8 @@ python verify.py
 阈值准确率。`eval.sh` 会根据 `DATAPATH` 自动识别数据布局：目录下存在
 `Cameras/pair.txt` 时使用 DTU 训练集布局 `dtu_yao`，否则使用包含
 `scan*/pair.txt` 的 DTU 测试集布局 `dtu_yao_eval`；也可以通过环境变量
-`DATASET` 显式指定。
+`DATASET` 显式指定。当前 `eval.sh` 默认启用纯指标模式；以后需要恢复文件
+输出时可设置 `SAVE_OUTPUTS=1`。
 - `datasets/`：DTU 训练与评估数据加载。
 - `lists/`：DTU 数据划分。
 - `verify.py`：无需数据集的快速验证脚本。

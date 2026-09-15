@@ -72,6 +72,9 @@ if args.nviews != 3:
     parser.error("the current experiment phase is fixed to three total views")
 if args.global_candidate_ratio + args.secondary_candidate_ratio >= 1.0:
     parser.error("global and secondary candidate ratios must sum to less than 1")
+if args.dataset == 'dtu_yao' and not args.metrics_only:
+    print("DTU training layout detected: enabling --metrics_only automatically.")
+    args.metrics_only = True
 print("argv:", sys.argv[1:])
 print_args(args)
 
@@ -156,7 +159,7 @@ def save_depth():
     model.cuda()
 
     print("loading model {}".format(args.loadckpt))
-    state_dict = torch.load(args.loadckpt)
+    state_dict = torch.load(args.loadckpt, weights_only=True)
     model.load_state_dict(state_dict['model'])
     model.eval()
 
