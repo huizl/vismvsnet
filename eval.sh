@@ -4,13 +4,20 @@ set -euo pipefail
 DATAPATH="${DATAPATH:-/home/disk_10T/lzh_data/dtu_test}"
 GTPATH="${GTPATH:-/home/disk_10T/lzh_data/dtu_training/mvs_training/dtu/Depths}"
 TESTLIST="${TESTLIST:-lists/dtu/test.txt}"
+if [[ -z "${DATASET:-}" ]]; then
+  if [[ -f "${DATAPATH}/Cameras/pair.txt" ]]; then
+    DATASET="dtu_yao"
+  else
+    DATASET="dtu_yao_eval"
+  fi
+fi
 EXP_NAME="${EXP_NAME:-vis_full_view3}"
 OUTDIR="${OUTDIR:-./outputs/${EXP_NAME}}"
 CKPT="${CKPT:-./checkpoints/dtu/${EXP_NAME}/best_2mm.ckpt}"
 GPU="${GPU:-0}"
 
 CUDA_VISIBLE_DEVICES="${GPU}" python eval.py \
-  --dataset=dtu_yao_eval \
+  --dataset="${DATASET}" \
   --testpath="${DATAPATH}" \
   --testlist="${TESTLIST}" \
   --outdir="${OUTDIR}" \

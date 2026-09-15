@@ -172,25 +172,39 @@ def save_depth():
                 sample_cuda["imgs"], sample_cuda["proj_matrices"],
                 sample_cuda["depth_values"])
 
-            filenames = sample["filename"]
+            filenames = sample.get("filename")
+            if filenames is not None:
+                scan_name = filenames[0].split('/')[0] if len(filenames) > 0 else '?'
+            else:
+                if not args.metrics_only:
+                    raise ValueError(
+                        "datasets without output filenames can only be used with --metrics_only")
+                scan_name = 'training-layout sample'
             print('Iter {}/{}  scan {}'.format(
-                batch_idx, len(TestImgLoader),
-                filenames[0].split('/')[0] if len(filenames) > 0 else '?'))
+                batch_idx, len(TestImgLoader), scan_name))
 
             B = final_depth.shape[0]
 
-            # Native stage-3 output is used for metrics so evaluation matches
-            # the training-time resize direction (GT -> prediction size).
+            # Native stage-3 output is resized to GT resolution by the metric helper.
             depth_s3_native = final_depth.squeeze(1).cpu().numpy()  # [B, H_native, W_native]
 
             if args.metrics_only:
                 del sample_cuda, outputs, final_depth, conf_maps, auxiliary
-                for b in range(B):
-                    ret = _compute_depth_metrics(
-                        filenames[b].format('', ''), depth_s3_native[b])
-                    if ret is not None:
+                if "depth" in sample and "mask" in sample:
+                    depth_gt = sample["depth"].cpu().numpy()
+                    valid_mask = sample["mask"].cpu().numpy() > 0.5
+                    for b in range(B):
+                        ret = _metrics_from_arrays(
+                            depth_s3_native[b], depth_gt[b], valid_mask[b])
                         for key in metrics:
                             metrics[key] += ret[key]
+                elif filenames is not None:
+                    for b in range(B):
+                        ret = _compute_depth_metrics(
+                            filenames[b].format('', ''), depth_s3_native[b])
+                        if ret is not None:
+                            for key in metrics:
+                                metrics[key] += ret[key]
                 continue
 
             # ---- upsample stage depths to original resolution for saving ----
@@ -264,6 +278,8 @@ def save_depth():
         print("  <4mm  (accuracy): {:.2f}%".format(lt4))
         print("  <8mm  (accuracy): {:.2f}%".format(lt8))
         print("=" * 60 + "\n")
+    else:
+        print("No valid GT pixels were found; check DATASET, DATAPATH, TESTLIST, and GTPATH.")
 
 
 def _load_gt_depth(fname_blank):
@@ -295,14 +311,18 @@ def _compute_depth_metrics(fname_blank, prediction):
     depth_min, depth_max = 425., 935.
     gt_mask = (depth_gt > depth_min) & (depth_gt < depth_max)
 
-    if depth_gt.shape != prediction.shape:
-        depth_gt = cv2.resize(depth_gt, (prediction.shape[1], prediction.shape[0]),
-                              interpolation=cv2.INTER_LINEAR)
-        gt_mask = cv2.resize(gt_mask.astype(np.uint8),
-                             (prediction.shape[1], prediction.shape[0]),
-                             interpolation=cv2.INTER_NEAREST).astype(bool)
+    return _metrics_from_arrays(prediction, depth_gt, gt_mask)
 
-    valid_err = np.abs(prediction - depth_gt)[gt_mask]
+
+def _metrics_from_arrays(prediction, depth_gt, valid_mask):
+    """Compute metrics after resizing a prediction to the GT resolution."""
+    while valid_mask.ndim > 2:
+        valid_mask = valid_mask.mean(axis=-1) > 0.5
+    if prediction.shape != depth_gt.shape:
+        prediction = cv2.resize(prediction, (depth_gt.shape[1], depth_gt.shape[0]),
+                                interpolation=cv2.INTER_LINEAR)
+
+    valid_err = np.abs(prediction - depth_gt)[valid_mask]
     return {
         "abs_sum": float(valid_err.sum()),
         "pixels": valid_err.size,
