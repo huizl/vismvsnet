@@ -1,0 +1,17 @@
+{
+  "experiment": "vis_search_boundary_view3",
+  "evaluated_at": "2026-09-16 19:29:23",
+  "dataset": "dtu_yao",
+  "testpath": "/home/disk_10T/lzh_data/dtu_training/mvs_training/dtu",
+  "testlist": "lists/dtu/test.txt",
+  "checkpoint": "./checkpoints/dtu/vis_search_boundary_view3/best_2mm.ckpt",
+  "nviews": 3,
+  "adaptive_search": true,
+  "hypothesis_visibility": false,
+  "boundary_refine": true,
+  "valid_pixels": 113780324,
+  "abs_depth_error_mm": 8.024795679036133,
+  "accuracy_lt_2mm_percent": 73.93884025150078,
+  "accuracy_lt_4mm_percent": 84.52069182014283,
+  "accuracy_lt_8mm_percent": 89.99769766871115
+}

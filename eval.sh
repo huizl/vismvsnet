@@ -12,7 +12,7 @@ if [[ -z "${DATASET:-}" ]]; then
   fi
 fi
 EXP_NAME="${EXP_NAME:-vis_full_view3}"
-OUTDIR="${OUTDIR:-./outputs/${EXP_NAME}}"
+OUTDIR="${OUTDIR:-./evals/${EXP_NAME}}"
 CKPT="${CKPT:-./checkpoints/dtu/${EXP_NAME}/best_2mm.ckpt}"
 GPU="${GPU:-0}"
 EVAL_MODE_ARGS=(--metrics_only)

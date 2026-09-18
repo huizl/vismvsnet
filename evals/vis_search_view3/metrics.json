@@ -1,0 +1,17 @@
+{
+  "experiment": "vis_search_view3",
+  "evaluated_at": "2026-09-15 10:51:11",
+  "dataset": "dtu_yao",
+  "testpath": "/home/disk_10T/lzh_data/dtu_training/mvs_training/dtu",
+  "testlist": "lists/dtu/test.txt",
+  "checkpoint": "./checkpoints/dtu/vis_search_view3/best_2mm.ckpt",
+  "nviews": 3,
+  "adaptive_search": true,
+  "hypothesis_visibility": false,
+  "boundary_refine": false,
+  "valid_pixels": 113780324,
+  "abs_depth_error_mm": 8.189666482287752,
+  "accuracy_lt_2mm_percent": 73.05437625577513,
+  "accuracy_lt_4mm_percent": 84.01973525756527,
+  "accuracy_lt_8mm_percent": 89.71080711635167
+}

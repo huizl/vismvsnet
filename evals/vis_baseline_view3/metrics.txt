@@ -1,0 +1,15 @@
+experiment: vis_baseline_view3
+evaluated_at: 2026-09-15 10:41:49
+dataset: dtu_yao
+testpath: /home/disk_10T/lzh_data/dtu_training/mvs_training/dtu
+testlist: lists/dtu/test.txt
+checkpoint: ./checkpoints/dtu/vis_baseline_view3/best_2mm.ckpt
+nviews: 3
+adaptive_search: False
+hypothesis_visibility: False
+boundary_refine: False
+valid_pixels: 113780324
+abs_depth_error_mm: 5.96183584589427
+accuracy_lt_2mm_percent: 79.08733851030341
+accuracy_lt_4mm_percent: 88.02559395067287
+accuracy_lt_8mm_percent: 92.31046573571015
